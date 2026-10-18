@@ -1,0 +1,142 @@
+name: Visitor Insights
+slug: visitor-insights
+type: plugin
+version: 1.0.0
+description: Cookie-free visitor counts, taps, scroll depth and a tap heatmap, shown on your Admin2 dashboard. No cookies, no banner, no third parties.
+icon: chart-simple
+author:
+  name: Sami Bashraheel
+  url: https://github.com/sami
+homepage: https://github.com/sami/grav-plugin-visitor-insights
+keywords: analytics, privacy, cookie-free, statistics, heatmap, scroll depth, dashboard, gdpr
+bugs: https://github.com/sami/grav-plugin-visitor-insights/issues
+docs: https://github.com/sami/grav-plugin-visitor-insights/blob/main/README.md
+license: MIT
+
+dependencies:
+  - { name: grav, version: '>=2.0.0' }
+  - { name: api, version: '>=1.0.40' }
+
+form:
+  validation: loose
+  fields:
+    enabled:
+      type: toggle
+      label: PLUGIN_ADMIN.PLUGIN_STATUS
+      highlight: 1
+      default: 1
+      options:
+        1: PLUGIN_ADMIN.ENABLED
+        0: PLUGIN_ADMIN.DISABLED
+      validate:
+        type: bool
+
+    counting:
+      type: section
+      title: PLUGIN_VISITOR_INSIGHTS.SETTINGS.COUNTING
+      underline: true
+
+    count_after_seconds:
+      type: number
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.COUNT_AFTER
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.COUNT_AFTER_HELP
+      default: 2
+      validate:
+        type: int
+        min: 0
+        max: 30
+
+    daily_view_cap:
+      type: number
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.DAILY_CAP
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.DAILY_CAP_HELP
+      default: 50
+      validate:
+        type: int
+        min: 1
+
+    respect_gpc:
+      type: toggle
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.GPC
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.GPC_HELP
+      default: 1
+      options:
+        1: PLUGIN_ADMIN.YES
+        0: PLUGIN_ADMIN.NO
+      validate:
+        type: bool
+
+    respect_dnt:
+      type: toggle
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.DNT
+      default: 0
+      options:
+        1: PLUGIN_ADMIN.YES
+        0: PLUGIN_ADMIN.NO
+      validate:
+        type: bool
+
+    exclude_routes:
+      type: array
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.EXCLUDE
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.EXCLUDE_HELP
+      value_only: true
+
+    heat:
+      type: section
+      title: PLUGIN_VISITOR_INSIGHTS.SETTINGS.HEATMAPS
+      underline: true
+
+    heatmaps:
+      type: toggle
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.HEATMAPS_ON
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.HEATMAPS_HELP
+      default: 1
+      options:
+        1: PLUGIN_ADMIN.YES
+        0: PLUGIN_ADMIN.NO
+      validate:
+        type: bool
+
+    sections:
+      type: text
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.SECTIONS
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.SECTIONS_HELP
+      default: 'header, main > section, section, footer, [data-insights-section]'
+
+    advanced:
+      type: section
+      title: PLUGIN_VISITOR_INSIGHTS.SETTINGS.ADVANCED
+      underline: true
+
+    retention_months:
+      type: number
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.RETENTION
+      default: 13
+      validate:
+        type: int
+        min: 1
+        max: 60
+
+    route:
+      type: text
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.ROUTE
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.ROUTE_HELP
+      default: /visitor-insights/hit
+
+    ignore_param:
+      type: text
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.IGNORE
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.IGNORE_HELP
+      default: insights-ignore
+
+    trust_cloudflare_ip:
+      type: toggle
+      label: PLUGIN_VISITOR_INSIGHTS.SETTINGS.CLOUDFLARE
+      help: PLUGIN_VISITOR_INSIGHTS.SETTINGS.CLOUDFLARE_HELP
+      default: 0
+      options:
+        1: PLUGIN_ADMIN.YES
+        0: PLUGIN_ADMIN.NO
+      validate:
+        type: bool

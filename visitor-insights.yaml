@@ -1,0 +1,33 @@
+enabled: true
+
+# Where the browser script sends its hits. Change it if it clashes with a page.
+route: /visitor-insights/hit
+
+# A view is only counted once the page has been visible this many seconds, or
+# the visitor scrolls, taps or types. Filters out bots and accidental bounces.
+count_after_seconds: 2
+
+# Honour the browser's Global Privacy Control signal (on by default).
+respect_gpc: true
+# Honour the older Do Not Track signal.
+respect_dnt: false
+
+# Most page views one visitor can add in a day. Stops reload loops and spam.
+daily_view_cap: 50
+
+# Record scroll depth and the tap map.
+heatmaps: true
+# CSS selector for the page sections used by scroll depth and the tap map.
+sections: 'header, main > section, section, footer, [data-insights-section]'
+
+# Months of data to keep.
+retention_months: 13
+
+# Routes to leave uncounted (shell patterns), for example /private/*
+exclude_routes: []
+
+# Visit any page with ?insights-ignore=1 to stop counting your own browser.
+ignore_param: insights-ignore
+
+# Only when the site is behind Cloudflare: read the visitor IP from Cloudflare's header.
+trust_cloudflare_ip: false

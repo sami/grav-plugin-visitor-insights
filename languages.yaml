@@ -1,0 +1,48 @@
+en:
+  PLUGIN_VISITOR_INSIGHTS:
+    SIDEBAR: Visitor insights
+    PANEL:
+      WIDGET_LABEL: Visitor insights
+      TITLE: Your website this month
+      NOTE: Counted without cookies
+      VISITORS: Visitors
+      VIEWS: Page views
+      TAPS_CALL: Tapped to call
+      TAPS_MESSAGE: Tapped to message
+      TAPS_DIRECTIONS: Asked for directions
+      LAST_MONTH: Last month
+      DAILY: Visitors each day, last 30 days
+      SOURCES: Where they came from
+      DEVICES: Phone, tablet or computer
+      PHONE: Phone
+      TABLET: Tablet
+      COMPUTER: Computer
+      EMPTY: No visits counted yet. Numbers appear here as soon as people visit the site.
+      WAITING: Shows once visitors arrive this month.
+      TODAY: Today
+      OPEN_PAGE: Scroll depth and tap map
+      ERROR: Couldn't load the numbers just now. Try Refresh in a minute.
+    SETTINGS:
+      COUNTING: Counting
+      COUNT_AFTER: Count a view after (seconds)
+      COUNT_AFTER_HELP: A view counts once the page has been visible this long, or the visitor scrolls, taps or types. 0 counts every load.
+      DAILY_CAP: Most views one visitor can add per day
+      DAILY_CAP_HELP: Stops reload loops and fake traffic from inflating the numbers.
+      GPC: Respect Global Privacy Control
+      GPC_HELP: Browsers that send the GPC signal are not counted.
+      DNT: Respect Do Not Track
+      EXCLUDE: Routes not to count
+      EXCLUDE_HELP: Shell patterns, for example /private/*
+      HEATMAPS: Scroll depth and tap map
+      HEATMAPS_ON: Record scroll depth and taps
+      HEATMAPS_HELP: Records how far down each page visitors get and where they tap. No recordings, no keystrokes, nothing personal.
+      SECTIONS: Page sections
+      SECTIONS_HELP: CSS selector for the blocks of a page. Add data-insights-section="name" to any element to name it yourself.
+      ADVANCED: Advanced
+      RETENTION: Months of data to keep
+      ROUTE: Hit address
+      ROUTE_HELP: Where the browser script sends its counts.
+      IGNORE: Opt-out parameter
+      IGNORE_HELP: Open any page with ?insights-ignore=1 to stop counting that browser (0 to undo).
+      CLOUDFLARE: Site is behind Cloudflare
+      CLOUDFLARE_HELP: Read the visitor IP from Cloudflare's CF-Connecting-IP header. Only turn this on when all traffic goes through Cloudflare.

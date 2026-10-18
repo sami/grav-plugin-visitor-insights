@@ -1,0 +1,15 @@
+{
+    "name": "sami/grav-plugin-visitor-insights",
+    "type": "grav-plugin",
+    "description": "Cookie-free visitor counts, taps, scroll depth and a tap heatmap for Grav, on the Admin2 dashboard.",
+    "keywords": ["grav", "plugin", "analytics", "privacy", "cookie-free", "heatmap"],
+    "homepage": "https://github.com/sami/grav-plugin-visitor-insights",
+    "license": "MIT",
+    "authors": [{ "name": "Sami Bashraheel", "homepage": "https://github.com/sami" }],
+    "require": { "php": "^8.3" },
+    "require-dev": { "phpunit/phpunit": "^11.0" },
+    "autoload": { "psr-4": { "Grav\\Plugin\\VisitorInsights\\": "classes/" } },
+    "autoload-dev": { "psr-4": { "Grav\\Plugin\\VisitorInsights\\Tests\\": "tests/" } },
+    "scripts": { "test": "phpunit" },
+    "config": { "sort-packages": true }
+}

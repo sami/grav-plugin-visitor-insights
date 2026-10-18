@@ -1,0 +1,7 @@
+actions:
+  api.insights:
+    type: access
+    label: Visitor Insights
+    actions:
+      read:
+        label: View visitor insights
