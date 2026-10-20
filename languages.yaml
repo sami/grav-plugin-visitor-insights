@@ -28,6 +28,8 @@ en:
       COUNT_AFTER_HELP: A view counts once the page has been visible this long, or the visitor scrolls, taps or types. 0 counts every load.
       DAILY_CAP: Most views one visitor can add per day
       DAILY_CAP_HELP: Stops reload loops and fake traffic from inflating the numbers.
+      ACTION_CAP: Most taps and scroll reports one visitor can add per day
+      ACTION_CAP_HELP: Stops one browser flooding the tap counts and the tap map.
       GPC: Respect Global Privacy Control
       GPC_HELP: Browsers that send the GPC signal are not counted.
       DNT: Respect Do Not Track

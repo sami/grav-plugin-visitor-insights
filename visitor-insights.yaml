@@ -15,6 +15,10 @@ respect_dnt: false
 # Most page views one visitor can add in a day. Stops reload loops and spam.
 daily_view_cap: 50
 
+# Most taps and scroll reports one visitor can add in a day. Stops one browser
+# flooding the tap counts and the tap map.
+daily_action_cap: 100
+
 # Record scroll depth and the tap map.
 heatmaps: true
 # CSS selector for the page sections used by scroll depth and the tap map.

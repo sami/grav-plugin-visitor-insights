@@ -21,17 +21,22 @@ final class Store
     public const GRID = 20;              // tap map cells per side (5% steps)
     public const MAX_TAPS_PER_SESSION = 30;
     public const MAX_SECTIONS = 30;
+    public const MAX_SOURCES_PER_DAY = 50;   // names a day's source list can hold, including Other
+    public const MAX_PAGES_PER_DAY = 500;    // names a day's page list can hold, including Other
+    public const OTHER = 'Other';            // where sources and pages past those limits are counted
 
     private string $dir;
     private int $dailyCap;
+    private int $actionCap;
     private int $retentionMonths;
     /** @var \Closure():\DateTimeImmutable */
     private \Closure $clock;
 
-    public function __construct(string $dataDir, int $dailyCap = 50, int $retentionMonths = 13, ?\Closure $clock = null)
+    public function __construct(string $dataDir, int $dailyCap = 50, int $retentionMonths = 13, ?\Closure $clock = null, int $actionCap = 100)
     {
         $this->dir = rtrim($dataDir, '/');
         $this->dailyCap = max(1, $dailyCap);
+        $this->actionCap = max(1, $actionCap);
         $this->retentionMonths = max(1, $retentionMonths);
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
         if (!is_dir($this->dir)) {
@@ -47,8 +52,8 @@ final class Store
         if (Classifier::isBot($ua)) {
             return false;
         }
-        [$isNew, $views] = $this->touchVisitor($ip, $ua, true);
-        if ($views > $this->dailyCap) {
+        [$isNew, $views] = $this->touchVisitor($ip, $ua, 'v');
+        if ($views < 1 || $views > $this->dailyCap) {
             return false;
         }
         $path = Classifier::cleanPath($path);
@@ -59,12 +64,14 @@ final class Store
             $day = &$data['days'][$this->today()];
             $day ??= self::emptyDay();
             $day['views']++;
-            $day['pages'][$path] = ($day['pages'][$path] ?? 0) + 1;
+            $pageKey = self::nameWithRoom($day['pages'] ?? [], $path, self::MAX_PAGES_PER_DAY);
+            $day['pages'][$pageKey] = ($day['pages'][$pageKey] ?? 0) + 1;
             if ($isNew) {
                 $day['visitors']++;
                 $day['devices'][$device] = ($day['devices'][$device] ?? 0) + 1;
                 if ($source !== null) {
-                    $day['sources'][$source] = ($day['sources'][$source] ?? 0) + 1;
+                    $sourceKey = self::nameWithRoom($day['sources'] ?? [], $source, self::MAX_SOURCES_PER_DAY);
+                    $day['sources'][$sourceKey] = ($day['sources'][$sourceKey] ?? 0) + 1;
                 }
             }
             return $data;
@@ -76,7 +83,7 @@ final class Store
     public function recordEvent(string $event, string $ip, string $ua): bool
     {
         $event = Classifier::cleanKey($event, 30);
-        if ($event === '' || Classifier::isBot($ua) || !$this->isKnownVisitor($ip, $ua)) {
+        if ($event === '' || Classifier::isBot($ua) || !$this->allowAction($ip, $ua)) {
             return false;
         }
         $this->updateMonth(function (array $data) use ($event): array {
@@ -97,7 +104,7 @@ final class Store
      */
     public function recordSession(string $path, string $device, int $maxDepth, array $sections, array $reached, array $taps, string $ip, string $ua): bool
     {
-        if (Classifier::isBot($ua) || !$this->isKnownVisitor($ip, $ua)) {
+        if (Classifier::isBot($ua) || !$this->allowAction($ip, $ua)) {
             return false;
         }
         $path = Classifier::cleanPath($path);
@@ -127,7 +134,11 @@ final class Store
             $cells[] = [$key, "$gx,$gy"];
         }
 
-        $this->updateMonth(function (array $data) use ($path, $device, $bucket, $order, $reached, $cells): array {
+        return $this->updateMonth(function (array $data) use ($path, $device, $bucket, $order, $reached, $cells): ?array {
+            // A month holds scroll and tap data for a limited number of pages. Once it is full, only pages already in it are updated.
+            if (!isset($data['pages'][$path]) && count($data['pages'] ?? []) >= self::MAX_PAGES_PER_DAY) {
+                return null;
+            }
             if ($order) {
                 $data['sections'][$path] = $order;
             }
@@ -144,7 +155,6 @@ final class Store
             }
             return $data;
         });
-        return true;
     }
 
     // ------------------------------------------------------------------ reading
@@ -250,6 +260,22 @@ final class Store
         return ['views' => 0, 'visitors' => 0, 'devices' => [], 'sources' => [], 'pages' => [], 'events' => []];
     }
 
+    /**
+     * The name to count $name under in a day's list of sources or pages.
+     *
+     * A name already in the list keeps its own entry. A new name gets one only
+     * while the list has room for it and still for Other, so the list never
+     * grows past $max entries. Everything else is counted as Other.
+     */
+    private static function nameWithRoom(array $list, string $name, int $max): string
+    {
+        if ($name === self::OTHER || isset($list[$name])) {
+            return $name;
+        }
+        $reservedForOther = isset($list[self::OTHER]) ? 0 : 1;
+        return count($list) + $reservedForOther < $max ? $name : self::OTHER;
+    }
+
     private static function sumDays(array $days, string $prefix): array
     {
         $t = ['views' => 0, 'visitors' => 0, 'devices' => [], 'sources' => [], 'pages' => [], 'events' => []];
@@ -290,20 +316,31 @@ final class Store
         return is_array($data) ? $data : [];
     }
 
-    private function updateMonth(callable $mutate): void
+    /**
+     * Change this month's file under an exclusive lock. $mutate gets the
+     * decoded data and returns the data to write, or null to leave the file
+     * alone. Returns true when the file was written.
+     *
+     * @param callable(array):?array $mutate
+     */
+    private function updateMonth(callable $mutate): bool
     {
         $month = ($this->clock)()->format('Y-m');
         $file = $this->monthFile($month);
         $isNew = !is_file($file);
         $fp = @fopen($file, 'c+');
         if (!$fp) {
-            return;
+            return false;
         }
         try {
             flock($fp, LOCK_EX);
             $raw = stream_get_contents($fp);
             $data = $raw ? (json_decode($raw, true) ?: []) : [];
             $data = $mutate($data);
+            if ($data === null) {
+                flock($fp, LOCK_UN);
+                return false;
+            }
             ftruncate($fp, 0);
             rewind($fp);
             fwrite($fp, (string) json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
@@ -315,6 +352,7 @@ final class Store
         if ($isNew) {
             $this->prune();
         }
+        return true;
     }
 
     /** Delete months older than the retention period. */
@@ -329,11 +367,16 @@ final class Store
     }
 
     /**
-     * Note one more page view for this visitor today.
+     * Note one more view ('v') or action ('a', a tap or a scroll report) for
+     * this visitor today, under the visitor list's lock.
      *
-     * @return array{0:bool,1:int} [first view today, views today including this one]
+     * With $knownOnly, a visitor who is not on today's list is left off it and
+     * nothing is counted.
+     *
+     * @return array{0:bool,1:int} [first time seen today, count of $kind today including this one].
+     *                             [false, 0] when nothing was counted.
      */
-    private function touchVisitor(string $ip, string $ua, bool $count): array
+    private function touchVisitor(string $ip, string $ua, string $kind, bool $knownOnly = false): array
     {
         $hash = $this->visitorHash($ip, $ua);
         $file = $this->dir . '/visitors-' . $this->today() . '.json';
@@ -346,44 +389,112 @@ final class Store
             $raw = stream_get_contents($fp);
             $seen = $raw ? (json_decode($raw, true) ?: []) : [];
             $isNew = !isset($seen[$hash]);
-            if ($count) {
-                $seen[$hash] = ($seen[$hash] ?? 0) + 1;
-                ftruncate($fp, 0);
-                rewind($fp);
-                fwrite($fp, (string) json_encode($seen));
-                fflush($fp);
+            if ($isNew && $knownOnly) {
+                flock($fp, LOCK_UN);
+                return [false, 0];
             }
+            $entry = self::visitorEntry($seen[$hash] ?? null);
+            $entry[$kind]++;
+            $seen[$hash] = $entry;
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, (string) json_encode($seen));
+            fflush($fp);
             flock($fp, LOCK_UN);
-            return [$isNew, (int) ($seen[$hash] ?? 0)];
+            return [$isNew, $entry[$kind]];
         } finally {
             fclose($fp);
         }
     }
 
-    private function isKnownVisitor(string $ip, string $ua): bool
+    /**
+     * One visitor's counts for today: 'v' views and 'a' actions. A plain
+     * number is the 1.0.0 format, which only counted views.
+     *
+     * @return array{v:int,a:int}
+     */
+    private static function visitorEntry(mixed $raw): array
     {
-        $file = $this->dir . '/visitors-' . $this->today() . '.json';
-        if (!is_file($file)) {
-            return false;
+        if (is_array($raw)) {
+            return ['v' => (int) ($raw['v'] ?? 0), 'a' => (int) ($raw['a'] ?? 0)];
         }
-        $seen = json_decode((string) file_get_contents($file), true);
-        return is_array($seen) && isset($seen[$this->visitorHash($ip, $ua)]);
+        return ['v' => (int) $raw, 'a' => 0];
+    }
+
+    /** May this visitor add a tap or a scroll report? Only once counted today, and only up to the daily action cap. */
+    private function allowAction(string $ip, string $ua): bool
+    {
+        [, $actions] = $this->touchVisitor($ip, $ua, 'a', true);
+        return $actions > 0 && $actions <= $this->actionCap;
     }
 
     private function visitorHash(string $ip, string $ua): string
     {
+        return substr(hash('sha256', $this->salt() . '|' . $ip . '|' . $ua), 0, 20);
+    }
+
+    /**
+     * Today's salt. The first request of the day creates the salt file; mode
+     * 'x' makes sure only one request can, so two requests arriving together
+     * at midnight share one salt and count a visitor once. The winner also
+     * deletes earlier days' salt and visitor lists. Everyone else reads the
+     * winner's salt, waiting briefly if the file exists but is still empty.
+     *
+     * When the salt cannot be read at all (the folder may not be writable) a
+     * one-off random salt is used, never an empty one, so the hash still cannot
+     * be linked to anyone.
+     */
+    private function salt(): string
+    {
         $today = $this->today();
-        $saltFile = $this->dir . '/salt-' . $today . '.txt';
-        if (!is_file($saltFile)) {
-            // A new day: delete yesterday's salt and visitor list so nobody can be followed across days.
-            foreach (array_merge(glob($this->dir . '/salt-*.txt') ?: [], glob($this->dir . '/visitors-*.json') ?: []) as $old) {
-                if (!str_contains($old, $today)) {
-                    @unlink($old);
+        $file = $this->dir . '/salt-' . $today . '.txt';
+
+        $fp = @fopen($file, 'x');
+        if ($fp) {
+            $salt = bin2hex(random_bytes(16));
+            try {
+                flock($fp, LOCK_EX);
+                fwrite($fp, $salt);
+                fflush($fp);
+                flock($fp, LOCK_UN);
+            } finally {
+                fclose($fp);
+            }
+            $this->forgetEarlierDays($today);
+            return $salt;
+        }
+
+        for ($attempt = 0; $attempt < 20; $attempt++) {
+            clearstatcache(true, $file);
+            if (!is_file($file)) {
+                break;
+            }
+            $fp = @fopen($file, 'r');
+            if ($fp) {
+                try {
+                    flock($fp, LOCK_SH);
+                    $salt = trim((string) stream_get_contents($fp));
+                    flock($fp, LOCK_UN);
+                } finally {
+                    fclose($fp);
+                }
+                if ($salt !== '') {
+                    return $salt;
                 }
             }
-            @file_put_contents($saltFile, bin2hex(random_bytes(16)), LOCK_EX);
+            usleep(5000);
         }
-        $salt = (string) @file_get_contents($saltFile);
-        return substr(hash('sha256', $salt . '|' . $ip . '|' . $ua), 0, 20);
+
+        return bin2hex(random_bytes(16));
+    }
+
+    /** A new day: delete earlier salts and visitor lists so nobody can be followed across days. */
+    private function forgetEarlierDays(string $today): void
+    {
+        foreach (array_merge(glob($this->dir . '/salt-*.txt') ?: [], glob($this->dir . '/visitors-*.json') ?: []) as $old) {
+            if (!str_contains($old, $today)) {
+                @unlink($old);
+            }
+        }
     }
 }

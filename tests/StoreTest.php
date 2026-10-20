@@ -30,9 +30,9 @@ final class StoreTest extends TestCase
         @rmdir($this->dir);
     }
 
-    private function store(int $cap = 50, int $retention = 13): Store
+    private function store(int $cap = 50, int $retention = 13, int $actionCap = 100): Store
     {
-        return new Store($this->dir, $cap, $retention, fn () => $this->now);
+        return new Store($this->dir, $cap, $retention, fn () => $this->now, $actionCap);
     }
 
     #[Test]
@@ -165,5 +165,124 @@ final class StoreTest extends TestCase
         $this->assertCount(30, $sum['last_30_days']);
         $this->assertSame('2026-10-02', end($sum['last_30_days'])['date']);
         $this->assertSame(2, end($sum['last_30_days'])['visitors']);
+    }
+
+    #[Test]
+    public function taps_and_scroll_reports_stop_at_the_action_cap(): void
+    {
+        $s = $this->store(actionCap: 3);
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA));
+        $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA));
+        $this->assertTrue($s->recordSession('/', 'phone', 50, [['key' => 'a']], ['a'], [], '10.0.0.1', self::UA), 'sessions share the same limit');
+        $this->assertFalse($s->recordEvent('call', '10.0.0.1', self::UA), 'fourth action is over the cap');
+        $this->assertFalse($s->recordSession('/', 'phone', 50, [['key' => 'a']], ['a'], [], '10.0.0.1', self::UA));
+
+        $this->assertSame(['call' => 2], $s->summary()['this_month']['events']);
+        $this->assertSame(1, $s->pageDetail('2026-10', '/', 'phone')['sessions']);
+    }
+
+    #[Test]
+    public function the_action_cap_is_per_visitor(): void
+    {
+        $s = $this->store(actionCap: 1);
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        $s->recordView('/', '', '', 1440, '10.0.0.2', self::UA2, 'example.com');
+        $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA));
+        $this->assertFalse($s->recordEvent('call', '10.0.0.1', self::UA));
+        $this->assertTrue($s->recordEvent('call', '10.0.0.2', self::UA2), 'another visitor has their own allowance');
+        $this->assertSame(['call' => 2], $s->summary()['this_month']['events']);
+    }
+
+    #[Test]
+    public function taps_do_not_use_up_the_view_cap(): void
+    {
+        $s = $this->store(cap: 2);
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        for ($i = 0; $i < 5; $i++) {
+            $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA));
+        }
+        $this->assertTrue($s->recordView('/menu', '', '', 390, '10.0.0.1', self::UA, 'example.com'), 'second view is still within the view cap');
+        $this->assertFalse($s->recordView('/menu', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
+        $this->assertSame(2, $s->summary()['this_month']['views']);
+    }
+
+    #[Test]
+    public function sources_past_the_limit_count_as_other(): void
+    {
+        $s = $this->store();
+        $n = Store::MAX_SOURCES_PER_DAY + 10;
+        for ($i = 1; $i <= $n; $i++) {
+            $s->recordView('/', "https://site{$i}.example/", '', 390, '10.1.0.' . $i, self::UA, 'example.com');
+        }
+
+        $m = $s->summary()['this_month'];
+        $this->assertSame($n, $m['visitors'], 'every visitor is still counted');
+        $this->assertSame($n, $m['views']);
+        $this->assertLessThanOrEqual(Store::MAX_SOURCES_PER_DAY, count($m['sources']), 'the list never exceeds the limit');
+        $this->assertArrayHasKey(Store::OTHER, $m['sources']);
+        $this->assertSame($n, array_sum($m['sources']), 'every visitor lands in some source');
+    }
+
+    #[Test]
+    public function pages_past_the_limit_count_as_other(): void
+    {
+        $s = $this->store(cap: 1000);
+        $n = Store::MAX_PAGES_PER_DAY + 10;
+        for ($i = 1; $i <= $n; $i++) {
+            $s->recordView("/page-{$i}", '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        }
+
+        $day = json_decode((string) file_get_contents($this->dir . '/insights-2026-10.json'), true)['days']['2026-10-18'];
+        $this->assertSame($n, $day['views'], 'every view is still counted');
+        $this->assertLessThanOrEqual(Store::MAX_PAGES_PER_DAY, count($day['pages']));
+        $this->assertArrayHasKey(Store::OTHER, $day['pages']);
+        $this->assertSame($n, array_sum($day['pages']));
+    }
+
+    #[Test]
+    public function a_source_already_listed_keeps_counting_by_name_after_the_limit(): void
+    {
+        $s = $this->store();
+        $s->recordView('/', 'https://www.google.com/', '', 390, '10.0.0.1', self::UA, 'example.com');
+        for ($i = 1; $i <= Store::MAX_SOURCES_PER_DAY + 10; $i++) {
+            $s->recordView('/', "https://site{$i}.example/", '', 390, '10.1.0.' . $i, self::UA, 'example.com');
+        }
+        $s->recordView('/', 'https://www.google.com/', '', 1440, '10.0.0.2', self::UA2, 'example.com');
+
+        $m = $s->summary()['this_month'];
+        $this->assertSame(2, $m['sources']['Google'], 'Google was listed before the limit, so it keeps its own count');
+        $this->assertLessThanOrEqual(Store::MAX_SOURCES_PER_DAY, count($m['sources']));
+    }
+
+    #[Test]
+    public function a_visitor_list_in_the_first_release_format_is_still_read(): void
+    {
+        $s = $this->store(cap: 3);
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        $file = $this->dir . '/visitors-2026-10-18.json';
+        $hash = array_key_first(json_decode((string) file_get_contents($file), true));
+        // 1.0.0 wrote a plain view count per visitor
+        file_put_contents($file, json_encode([$hash => 2]));
+
+        $this->assertTrue($s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com'), 'third view is within the cap');
+        $this->assertFalse($s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com'), 'fourth is not');
+        $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA), 'taps start from zero');
+        $this->assertSame(1, $s->summary()['this_month']['visitors'], 'still the same person, not a new one');
+        $this->assertSame(['v' => 4, 'a' => 1], json_decode((string) file_get_contents($file), true)[$hash]);
+    }
+
+    #[Test]
+    public function two_stores_on_the_same_day_share_one_salt_and_count_one_visitor(): void
+    {
+        $a = $this->store();
+        $b = $this->store();
+        $this->assertTrue($a->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
+        $this->assertTrue($b->recordView('/menu', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
+
+        $this->assertCount(1, glob($this->dir . '/salt-*.txt') ?: []);
+        $this->assertCount(1, json_decode((string) file_get_contents($this->dir . '/visitors-2026-10-18.json'), true), 'one hash for the one person');
+        $this->assertSame(1, $b->summary()['this_month']['visitors']);
+        $this->assertSame(2, $b->summary()['this_month']['views']);
     }
 }

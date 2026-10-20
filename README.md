@@ -2,7 +2,9 @@
 
 Cookie-free visitor numbers for Grav 2, shown on the Admin2 dashboard. Visitor Insights counts visitors and page views, shows where they came from, records taps on the links that matter (call, message, email, WhatsApp, directions, social, downloads), and shows how far down each page people scroll, with a tap heatmap drawn over a live preview of the page.
 
-It sets no cookies, stores nothing on the visitor's device, sends nothing to a third party and never writes an IP address to disk. You don't need a cookie banner for it.
+It sets no cookies, sends nothing to a third party and never writes an IP address to disk. The only thing it ever stores in a browser is the opt-out flag you can set on your own browser, so no cookie banner is needed.
+
+The plugin does still process IP addresses briefly, in memory, to tell one visitor from another, so it is worth a mention in your privacy notice. A line such as "We count visits with a privacy-friendly tool that sets no cookies and doesn't store IP addresses" is usually enough. This is not legal advice; check what applies where you are.
 
 ![Dashboard panel](docs/dashboard.png)
 
@@ -30,12 +32,15 @@ A view is only counted once the visitor engages with the page: it has been visib
 - browsers driven by automation (`navigator.webdriver`) are ignored;
 - behind Cloudflare, requests with a low bot score are dropped;
 - one visitor can add at most 50 views a day (you can change this);
-- taps and scroll data are only accepted from visitors who were already counted.
+- taps and scroll data are only accepted from visitors who were already counted;
+- one visitor can add at most 100 taps and scroll reports a day (you can change this), so a single browser can't flood the tap counts or the tap map;
+- views and scroll data are only counted for pages that really exist on the site: the browser reports its own path, so made-up paths are dropped;
+- a day lists at most 50 sources and 500 pages, and anything beyond that is counted as "Other", so a flood of invented referrers or paths can't fill the data folder.
 
 ## Respecting visitors
 
 - Global Privacy Control is honoured by default. Do Not Track can be honoured too.
-- Visit any page with `?insights-ignore=1` to stop your own browser being counted, and with `?insights-ignore=0` to undo it.
+- Visit any page with `?insights-ignore=1` to stop your own browser being counted, and with `?insights-ignore=0` to undo it. The flag is kept in that browser's local storage.
 - Data older than 13 months is deleted automatically (you can change this).
 
 ## Speed
@@ -74,7 +79,8 @@ route: /visitor-insights/hit        # where the script sends its hits
 count_after_seconds: 2              # 0 counts every view straight away
 respect_gpc: true
 respect_dnt: false
-daily_view_cap: 50
+daily_view_cap: 50                  # views one visitor can add per day
+daily_action_cap: 100               # taps and scroll reports one visitor can add per day
 heatmaps: true                      # scroll depth and the tap map
 sections: 'header, main > section, section, footer, [data-insights-section]'
 retention_months: 13

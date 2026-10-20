@@ -90,8 +90,14 @@ class VisitorInsightsPlugin extends Plugin
             return;
         }
 
+        $kind = (string) ($hit['t'] ?? '');
+        // The browser reports its own path, so only count views and sessions for pages that really exist.
+        if (in_array($kind, ['view', 'session'], true) && !$this->isRealPage((string) ($hit['p'] ?? '/'))) {
+            return;
+        }
+
         $store = $this->store();
-        switch ($hit['t'] ?? '') {
+        switch ($kind) {
             case 'view':
                 $store->recordView(
                     (string) ($hit['p'] ?? '/'),
@@ -116,6 +122,45 @@ class VisitorInsightsPlugin extends Plugin
                     $ip, $ua
                 );
                 break;
+        }
+    }
+
+    /**
+     * Does this path lead to a real, routable, published page of the site?
+     *
+     * Uses Pages::find(), not dispatch(): dispatch() can send a redirect from
+     * site.redirects, which must never happen on a background hit. find() still
+     * resolves the home page at / and site-wide routes.
+     */
+    private function isRealPage(string $path): bool
+    {
+        try {
+            $route = (string) (parse_url($path, PHP_URL_PATH) ?: '/');
+
+            // The site may live in a folder, for example /blog/about on example.com/blog.
+            $root = rtrim((string) $this->grav['uri']->rootUrl(false), '/');
+            if ($root !== '') {
+                if ($route === $root) {
+                    $route = '/';
+                } elseif (str_starts_with($route, $root . '/')) {
+                    $route = substr($route, strlen($root));
+                }
+            }
+            $route = '/' . trim($route, '/');
+
+            // A language prefix is not part of the page route: /en/about is the page /about.
+            $languages = (array) $this->config->get('system.languages.supported', []);
+            if ($languages !== [] && $route !== '/') {
+                $segments = explode('/', substr($route, 1), 2);
+                if (in_array($segments[0], $languages, true)) {
+                    $route = '/' . trim($segments[1] ?? '', '/');
+                }
+            }
+
+            $page = $this->grav['pages']->find($route);
+            return $page !== null && $page->routable() && $page->published();
+        } catch (\Throwable) {
+            return false;
         }
     }
 
@@ -209,7 +254,9 @@ class VisitorInsightsPlugin extends Plugin
         return new Store(
             (string) $this->grav['locator']->findResource('user-data://visitor-insights', true, true),
             (int) $this->config->get('plugins.visitor-insights.daily_view_cap', 50),
-            (int) $this->config->get('plugins.visitor-insights.retention_months', 13)
+            (int) $this->config->get('plugins.visitor-insights.retention_months', 13),
+            null,
+            (int) $this->config->get('plugins.visitor-insights.daily_action_cap', 100)
         );
     }
 }
