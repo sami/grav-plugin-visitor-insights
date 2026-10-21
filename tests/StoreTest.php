@@ -261,7 +261,7 @@ final class StoreTest extends TestCase
         $s = $this->store(cap: 3);
         $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
         $file = $this->dir . '/visitors-2026-10-18.json';
-        $hash = array_key_first(json_decode((string) file_get_contents($file), true));
+        $hash = $this->visitorHashes()[0];
         // 1.0.0 wrote a plain view count per visitor
         file_put_contents($file, json_encode([$hash => 2]));
 
@@ -281,8 +281,155 @@ final class StoreTest extends TestCase
         $this->assertTrue($b->recordView('/menu', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
 
         $this->assertCount(1, glob($this->dir . '/salt-*.txt') ?: []);
-        $this->assertCount(1, json_decode((string) file_get_contents($this->dir . '/visitors-2026-10-18.json'), true), 'one hash for the one person');
+        $this->assertCount(1, $this->visitorHashes(), 'one hash for the one person');
         $this->assertSame(1, $b->summary()['this_month']['visitors']);
         $this->assertSame(2, $b->summary()['this_month']['views']);
+    }
+
+    #[Test]
+    public function changing_the_user_agent_does_not_make_new_visitors_past_the_ip_limit(): void
+    {
+        $s = $this->store();
+        for ($i = 1; $i <= 300; $i++) {
+            $s->recordView('/', '', '', 1440, '10.0.0.1', "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.{$i} Safari/537.36", 'example.com');
+        }
+
+        $m = $s->summary()['this_month'];
+        $this->assertSame(20, $m['visitors'], 'one IP adds at most 20 new visitors a day');
+        $this->assertSame(20, $m['views']);
+        $this->assertCount(20, $this->visitorHashes(), 'refused visitors are not added to the list');
+    }
+
+    #[Test]
+    public function an_ipv6_network_shares_one_limit(): void
+    {
+        $s = $this->store();
+        for ($i = 1; $i <= 30; $i++) {
+            $s->recordView('/', '', '', 390, sprintf('2001:db8:1:2::%x', $i), self::UA, 'example.com');
+        }
+        $this->assertSame(20, $s->summary()['this_month']['visitors'], 'addresses in one /64 count together');
+
+        $this->assertTrue($s->recordView('/', '', '', 390, '2001:db8:1:3::1', self::UA, 'example.com'), 'another /64 has its own limit');
+        $this->assertTrue($s->recordView('/', '', '', 390, '::ffff:10.0.0.7', self::UA, 'example.com'), 'an IPv4-mapped address counts as IPv4');
+        $this->assertSame(22, $s->summary()['this_month']['visitors']);
+    }
+
+    #[Test]
+    public function no_ip_address_or_network_is_written(): void
+    {
+        $s = $this->store();
+        for ($i = 1; $i <= 25; $i++) {
+            $s->recordView('/', '', '', 390, '10.0.0.1', self::UA . " {$i}", 'example.com');
+            $s->recordView('/', '', '', 390, sprintf('2001:db8:1:2::%x', $i), self::UA, 'example.com');
+        }
+
+        $needles = ['10.0.0.1', '2001:db8:1:2', '20010db800010002', (string) inet_pton('10.0.0.1'), substr((string) inet_pton('2001:db8:1:2::1'), 0, 8)];
+        foreach (glob($this->dir . '/*') ?: [] as $f) {
+            $content = (string) file_get_contents($f);
+            foreach ($needles as $needle) {
+                $this->assertStringNotContainsString($needle, $content, basename($f) . ' must not hold an IP address or network');
+            }
+        }
+    }
+
+    #[Test]
+    public function visitors_already_counted_carry_on_after_their_ip_reaches_the_limit(): void
+    {
+        $s = $this->store();
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        for ($i = 1; $i <= 30; $i++) {
+            $s->recordView('/', '', '', 390, '10.0.0.1', self::UA . " {$i}", 'example.com');
+        }
+
+        $this->assertTrue($s->recordView('/menu', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
+        $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA));
+        $this->assertTrue($s->recordSession('/', 'phone', 50, [['key' => 'a']], ['a'], [], '10.0.0.1', self::UA));
+        $this->assertFalse($s->recordEvent('call', '10.0.0.1', self::UA . ' 30'), 'a refused visitor is not on the list, so cannot tap');
+        $this->assertSame(20, $s->summary()['this_month']['visitors']);
+    }
+
+    #[Test]
+    public function a_full_visitor_list_takes_no_new_visitors(): void
+    {
+        $s = $this->store();
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        $file = $this->dir . '/visitors-2026-10-18.json';
+        $seen = json_decode((string) file_get_contents($file), true);
+        for ($i = count($seen); $i < Store::MAX_VISITOR_ENTRIES; $i++) {
+            $seen[sprintf('%020x', $i)] = ['v' => 1, 'a' => 0];
+        }
+        file_put_contents($file, json_encode($seen));
+
+        $this->assertFalse($s->recordView('/', '', '', 1440, '10.0.0.2', self::UA2, 'example.com'), 'no room for a new visitor');
+        $this->assertTrue($s->recordView('/menu', '', '', 390, '10.0.0.1', self::UA, 'example.com'), 'a listed visitor still counts');
+        $this->assertCount(Store::MAX_VISITOR_ENTRIES, json_decode((string) file_get_contents($file), true), 'the list does not grow');
+        $this->assertSame(1, $s->summary()['this_month']['visitors']);
+    }
+
+    #[Test]
+    public function event_names_past_the_limit_count_as_other(): void
+    {
+        $s = $this->store(actionCap: 1000);
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA));
+        for ($i = 1; $i <= 200; $i++) {
+            $s->recordEvent("junk-{$i}", '10.0.0.1', self::UA);
+        }
+        $this->assertTrue($s->recordEvent('call', '10.0.0.1', self::UA));
+
+        $events = $s->summary()['this_month']['events'];
+        $this->assertCount(50, $events, 'a day lists at most 50 tap names, including Other');
+        $this->assertArrayHasKey(Store::OTHER, $events);
+        $this->assertSame(2, $events['call'], 'a name already listed keeps counting by name');
+        $this->assertSame(202, array_sum($events), 'every tap lands somewhere');
+    }
+
+    #[Test]
+    public function section_keys_per_page_and_device_are_limited(): void
+    {
+        $s = $this->store(actionCap: 1000);
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        $s->recordSession('/', 'phone', 50, [['key' => 'hero']], ['hero'], [['hero', 0.5, 0.5]], '10.0.0.1', self::UA);
+        for ($batch = 0; $batch < 14; $batch++) {
+            $sections = [];
+            $taps = [];
+            for ($i = 0; $i < 30; $i++) {
+                $key = 'junk-' . ($batch * 30 + $i);
+                $sections[] = ['key' => $key];
+                $taps[] = [$key, 0.5, 0.5];
+            }
+            $s->recordSession('/', 'phone', 50, $sections, array_column($sections, 'key'), $taps, '10.0.0.1', self::UA);
+        }
+        $s->recordSession('/', 'phone', 50, [['key' => 'hero']], ['hero'], [['hero', 0.5, 0.5]], '10.0.0.1', self::UA);
+
+        $page = json_decode((string) file_get_contents($this->dir . '/insights-2026-10.json'), true)['pages']['/']['phone'];
+        $keys = array_unique(array_merge(array_keys($page['reached']), array_keys($page['taps'])));
+        $this->assertLessThanOrEqual(60, count($keys), 'a page and device keep at most 60 section keys');
+        $this->assertSame(2, $page['reached']['hero'], 'a key already stored keeps counting');
+        $this->assertSame(['10,10' => 2], $page['taps']['hero']);
+    }
+
+    #[Test]
+    public function a_list_mixing_old_entries_and_ip_counts_is_read(): void
+    {
+        $s = $this->store(cap: 3);
+        $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
+        $file = $this->dir . '/visitors-2026-10-18.json';
+        $seen = json_decode((string) file_get_contents($file), true);
+        $hash = $this->visitorHashes()[0];
+        $seen[$hash] = 2;   // 1.0.0's plain view count, next to the new per-IP entry
+        file_put_contents($file, json_encode($seen));
+
+        $this->assertTrue($s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
+        $this->assertFalse($s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
+        $this->assertTrue($s->recordView('/', '', '', 1440, '10.0.0.1', self::UA2, 'example.com'), 'a second browser on the same IP is within the limit');
+        $this->assertSame(2, $s->summary()['this_month']['visitors']);
+    }
+
+    /** Keys of today's visitor list that are visitors, not per-IP counts. */
+    private function visitorHashes(): array
+    {
+        $seen = json_decode((string) file_get_contents($this->dir . '/visitors-2026-10-18.json'), true);
+        return array_values(array_filter(array_keys($seen), static fn ($k) => !str_starts_with((string) $k, 'i:')));
     }
 }

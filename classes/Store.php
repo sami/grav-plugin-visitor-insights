@@ -23,7 +23,11 @@ final class Store
     public const MAX_SECTIONS = 30;
     public const MAX_SOURCES_PER_DAY = 50;   // names a day's source list can hold, including Other
     public const MAX_PAGES_PER_DAY = 500;    // names a day's page list can hold, including Other
-    public const OTHER = 'Other';            // where sources and pages past those limits are counted
+    public const MAX_EVENTS_PER_DAY = 50;    // tap names a day's list can hold, including Other
+    public const MAX_SECTION_KEYS = 60;      // section keys one page and device can hold
+    public const MAX_VISITORS_PER_IP = 20;   // new visitors one IP address (one /64 for IPv6) can add per day
+    public const MAX_VISITOR_ENTRIES = 10000; // entries a day's visitor list can hold, visitors and per-IP counts together
+    public const OTHER = 'Other';            // where sources, pages and tap names past those limits are counted
 
     private string $dir;
     private int $dailyCap;
@@ -89,7 +93,8 @@ final class Store
         $this->updateMonth(function (array $data) use ($event): array {
             $day = &$data['days'][$this->today()];
             $day ??= self::emptyDay();
-            $day['events'][$event] = ($day['events'][$event] ?? 0) + 1;
+            $eventKey = self::nameWithRoom($day['events'] ?? [], $event, self::MAX_EVENTS_PER_DAY);
+            $day['events'][$eventKey] = ($day['events'][$eventKey] ?? 0) + 1;
             return $data;
         });
         return true;
@@ -146,12 +151,28 @@ final class Store
             $p ??= ['sessions' => 0, 'depth' => [], 'reached' => [], 'taps' => [], 'taps_total' => 0];
             $p['sessions']++;
             $p['depth'][$bucket] = ($p['depth'][$bucket] ?? 0) + 1;
+
+            // Keys already stored keep counting; new ones only while the page and device have room.
+            $known = array_flip(array_merge(array_keys($p['reached']), array_keys($p['taps'])));
+            $hasRoom = static function (string $key) use (&$known): bool {
+                if (!isset($known[$key])) {
+                    if (count($known) >= self::MAX_SECTION_KEYS) {
+                        return false;
+                    }
+                    $known[$key] = true;
+                }
+                return true;
+            };
             foreach ($reached as $key) {
-                $p['reached'][$key] = ($p['reached'][$key] ?? 0) + 1;
+                if ($hasRoom($key)) {
+                    $p['reached'][$key] = ($p['reached'][$key] ?? 0) + 1;
+                }
             }
             foreach ($cells as [$key, $cell]) {
-                $p['taps'][$key][$cell] = ($p['taps'][$key][$cell] ?? 0) + 1;
-                $p['taps_total']++;
+                if ($hasRoom($key)) {
+                    $p['taps'][$key][$cell] = ($p['taps'][$key][$cell] ?? 0) + 1;
+                    $p['taps_total']++;
+                }
             }
             return $data;
         });
@@ -373,12 +394,18 @@ final class Store
      * With $knownOnly, a visitor who is not on today's list is left off it and
      * nothing is counted.
      *
+     * A new visitor is only added while their IP address (their /64 network for
+     * IPv6) has added fewer than MAX_VISITORS_PER_IP visitors today and the list
+     * has room. The per-IP count is kept under "i:" and a salted hash of the
+     * address, never the address itself, and goes with the day's list.
+     *
      * @return array{0:bool,1:int} [first time seen today, count of $kind today including this one].
      *                             [false, 0] when nothing was counted.
      */
     private function touchVisitor(string $ip, string $ua, string $kind, bool $knownOnly = false): array
     {
-        $hash = $this->visitorHash($ip, $ua);
+        $salt = $this->salt();
+        $hash = self::visitorHash($salt, $ip, $ua);
         $file = $this->dir . '/visitors-' . $this->today() . '.json';
         $fp = @fopen($file, 'c+');
         if (!$fp) {
@@ -392,6 +419,16 @@ final class Store
             if ($isNew && $knownOnly) {
                 flock($fp, LOCK_UN);
                 return [false, 0];
+            }
+            if ($isNew) {
+                $ipKey = 'i:' . self::ipHash($salt, $ip);
+                $ipCount = (int) ($seen[$ipKey] ?? 0);
+                $added = isset($seen[$ipKey]) ? 1 : 2;
+                if ($ipCount >= self::MAX_VISITORS_PER_IP || count($seen) + $added > self::MAX_VISITOR_ENTRIES) {
+                    flock($fp, LOCK_UN);
+                    return [false, 0];
+                }
+                $seen[$ipKey] = $ipCount + 1;
             }
             $entry = self::visitorEntry($seen[$hash] ?? null);
             $entry[$kind]++;
@@ -428,9 +465,31 @@ final class Store
         return $actions > 0 && $actions <= $this->actionCap;
     }
 
-    private function visitorHash(string $ip, string $ua): string
+    private static function visitorHash(string $salt, string $ip, string $ua): string
     {
-        return substr(hash('sha256', $this->salt() . '|' . $ip . '|' . $ua), 0, 20);
+        return substr(hash('sha256', $salt . '|' . $ip . '|' . $ua), 0, 20);
+    }
+
+    private static function ipHash(string $salt, string $ip): string
+    {
+        return substr(hash('sha256', $salt . '|ip|' . self::ipNetwork($ip)), 0, 20);
+    }
+
+    /**
+     * The address the per-IP limit counts by: an IPv4 address as it is, an
+     * IPv6 address by its /64 network (one home or phone usually has a whole
+     * /64), and an IPv4-mapped IPv6 address as the IPv4 address.
+     */
+    private static function ipNetwork(string $ip): string
+    {
+        $packed = @inet_pton($ip);
+        if ($packed === false || strlen($packed) !== 16) {
+            return $ip;
+        }
+        if (str_starts_with($packed, str_repeat("\0", 10) . "\xff\xff")) {
+            return (string) inet_ntop(substr($packed, 12));
+        }
+        return bin2hex(substr($packed, 0, 8)) . '/64';
     }
 
     /**
