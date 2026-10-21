@@ -14,6 +14,7 @@
     * The visitor IP follows Grav's forwarded-header settings (`system.http_x_forwarded`) behind a proxy. The Cloudflare setting still overrides it, and its help now says the header can be faked unless the server only accepts traffic from Cloudflare
     * The admin page shows an error, not blank panes, when a page's details can't be loaded
     * The admin page and dashboard panel keep working when left open past the hour the admin's token lasts (Admin2 2.1.35 or later)
+    * The minimum Grav version is now 2.1.5, which the API plugin it depends on already needed
 
 # v1.0.0
 ## 10/18/2026

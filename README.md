@@ -59,7 +59,7 @@ That suits small and medium sites. If yours regularly gets several hits a second
 
 ## Requirements
 
-- Grav 2.0 or later
+- Grav 2.1.5 or later
 - The [API plugin](https://github.com/getgrav/grav-plugin-api) 1.0.40 or later
 - [Admin2](https://github.com/getgrav/grav-plugin-admin2) 2.0.0 or later. Installing or updating Visitor Insights with GPM installs it if it isn't there already
 - PHP 8.3 or later
