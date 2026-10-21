@@ -5,7 +5,8 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n) => Number(n || 0).toLocaleString();
-  const api = (path) => fetch((window.__GRAV_API_SERVER_URL || '') + (window.__GRAV_API_PREFIX || '/api/v1') + path, {
+  // Admin2 2.1.35+ provides __GRAV_API, which keeps the token fresh; older builds get a plain fetch.
+  const api = (path) => window.__GRAV_API?.get ? window.__GRAV_API.get(path) : fetch((window.__GRAV_API_SERVER_URL || '') + (window.__GRAV_API_PREFIX || '/api/v1') + path, {
     headers: { Accept: 'application/json', 'X-API-Token': window.__GRAV_API_TOKEN || '' },
   }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then((j) => j.data ?? j);
 

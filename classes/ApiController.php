@@ -41,7 +41,7 @@ final class ApiController extends AbstractApiController
         $store = $this->store();
         $months = $store->months();
         $month = (string) ($request->getQueryParams()['month'] ?? ($months[0] ?? gmdate('Y-m')));
-        return ApiResponse::create(['months' => $months, 'month' => $month, 'pages' => $store->pages($month)]);
+        return ApiResponse::create(['months' => $months, 'month' => $month, 'pages' => $store->pages($month), 'labels' => $this->pageLabels()]);
     }
 
     /** GET /insights/page?month=YYYY-MM&path=/&device=phone */
@@ -71,12 +71,24 @@ final class ApiController extends AbstractApiController
     /** Panel wording, translated through languages.yaml. */
     private function labels(): array
     {
-        $keys = ['TITLE', 'NOTE', 'VISITORS', 'VIEWS', 'TAPS_CALL', 'TAPS_MESSAGE', 'TAPS_DIRECTIONS', 'LAST_MONTH',
-                 'DAILY', 'SOURCES', 'DEVICES', 'PHONE', 'TABLET', 'COMPUTER', 'EMPTY', 'WAITING', 'TODAY', 'OPEN_PAGE', 'ERROR'];
+        return $this->translate('PANEL', ['TITLE', 'NOTE', 'VISITORS', 'VIEWS', 'TAPS_CALL', 'TAPS_MESSAGE', 'TAPS_DIRECTIONS', 'LAST_MONTH',
+            'DAILY', 'SOURCES', 'DEVICES', 'PHONE', 'TABLET', 'COMPUTER', 'EMPTY', 'WAITING', 'TODAY', 'OPEN_PAGE', 'ERROR']);
+    }
+
+    /** Admin page wording. Device names are shared with the panel. */
+    private function pageLabels(): array
+    {
+        return $this->translate('PAGE', ['ERROR', 'MONTH', 'PAGE', 'DEVICE', 'SCROLL_TITLE', 'NO_VISITS', 'VISITS_ONE', 'VISITS_MANY',
+            'BOTTOM', 'NO_SECTIONS', 'TAP_TITLE', 'COLLECTING_ONE', 'COLLECTING_MANY', 'TAPS_MONTH', 'PREVIEW', 'FEWER', 'MORE'])
+            + $this->translate('PANEL', ['PHONE', 'TABLET', 'COMPUTER']);
+    }
+
+    private function translate(string $group, array $keys): array
+    {
         $language = $this->grav['language'];
         $out = [];
         foreach ($keys as $k) {
-            $out[$k] = $language->translate('PLUGIN_VISITOR_INSIGHTS.PANEL.' . $k);
+            $out[$k] = $language->translate('PLUGIN_VISITOR_INSIGHTS.' . $group . '.' . $k);
         }
         return $out;
     }

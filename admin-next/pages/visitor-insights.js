@@ -5,12 +5,19 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const server = () => window.__GRAV_API_SERVER_URL || '';
-  const api = (path) => fetch(server() + (window.__GRAV_API_PREFIX || '/api/v1') + path, {
-    headers: { Accept: 'application/json', 'X-API-Token': window.__GRAV_API_TOKEN || '' },
-  }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then((j) => j.data ?? j);
+  // Admin2 2.1.35+ provides __GRAV_API, which keeps the token fresh; older builds get a plain fetch.
+  const api = (path, params = {}) => {
+    if (window.__GRAV_API?.get) return window.__GRAV_API.get(path, params);
+    const query = new URLSearchParams(params).toString();
+    return fetch(server() + (window.__GRAV_API_PREFIX || '/api/v1') + path + (query ? '?' + query : ''), {
+      headers: { Accept: 'application/json', 'X-API-Token': window.__GRAV_API_TOKEN || '' },
+    }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then((j) => j.data ?? j);
+  };
 
   const WIDTHS = { phone: 390, tablet: 820, computer: 1280 };
   const ENOUGH_TAPS = 150;
+  // Wording arrives with the first response; this one is needed if that response never comes.
+  const FALLBACK = { ERROR: 'Couldn\'t load visitor insights just now. Try again in a minute.' };
 
   const css = `
     :host{display:block;color:inherit;font:inherit;padding:4px 0 32px}
@@ -34,11 +41,13 @@
     .legend i{display:inline-block;width:120px;height:8px;border-radius:4px;background:linear-gradient(90deg,#3b82f6,#22c55e,#eab308,#ef4444)}
     .empty{font-size:13.5px;opacity:.7;line-height:1.5}
     .warn{font-size:12.5px;background:color-mix(in srgb,#eab308 14%,transparent);border-radius:8px;padding:8px 10px;margin:0 0 12px}
+    .err{font-size:13px;color:#b45309;margin:0}
   `;
 
   class InsightsPage extends HTMLElement {
     connectedCallback() {
       this.state = { month: '', path: '/', device: 'phone', months: [], pages: [] };
+      this.labels = {};
       this.attachShadow({ mode: 'open' });
       this.shadowRoot.innerHTML = `<style>${css}</style><div class="bar"></div><div class="grid"><div class="card side"></div><div class="card map"></div></div>`;
       this.loadPages();
@@ -46,9 +55,21 @@
 
     $(sel) { return this.shadowRoot.querySelector(sel); }
 
+    // Translated wording from languages.yaml, with {name} placeholders filled in.
+    t(key, vars = {}) {
+      return String(this.labels[key] ?? FALLBACK[key] ?? key).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+    }
+
+    showError() {
+      const msg = `<p class="err">${esc(this.t('ERROR'))}</p>`;
+      this.$('.side').innerHTML = msg;
+      this.$('.map').innerHTML = msg;
+    }
+
     async loadPages(month) {
       try {
-        const d = await api('/insights/pages' + (month ? '?month=' + encodeURIComponent(month) : ''));
+        const d = await api('/insights/pages', month ? { month } : {});
+        this.labels = d.labels || this.labels;
         this.state.months = d.months.length ? d.months : [d.month];
         this.state.month = d.month;
         this.state.pages = d.pages;
@@ -56,7 +77,7 @@
         this.renderBar();
         this.loadDetail();
       } catch (e) {
-        this.$('.side').innerHTML = '<p class="empty">Couldn\'t load visitor insights just now.</p>';
+        this.showError();
       }
     }
 
@@ -64,9 +85,9 @@
       const s = this.state;
       const monthLabel = (m) => new Date(m + '-01T12:00:00Z').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
       this.$('.bar').innerHTML = `
-        <select data-k="month" aria-label="Month">${s.months.map((m) => `<option value="${esc(m)}" ${m === s.month ? 'selected' : ''}>${esc(monthLabel(m))}</option>`).join('')}</select>
-        <select data-k="path" aria-label="Page">${(s.pages.length ? s.pages : [{ path: '/', sessions: 0 }]).map((p) => `<option value="${esc(p.path)}" ${p.path === s.path ? 'selected' : ''}>${esc(p.path)} (${p.sessions})</option>`).join('')}</select>
-        <span class="seg" role="group" aria-label="Device">${['phone', 'tablet', 'computer'].map((d) => `<button type="button" data-device="${d}" aria-pressed="${d === s.device}">${d[0].toUpperCase() + d.slice(1)}</button>`).join('')}</span>`;
+        <select data-k="month" aria-label="${esc(this.t('MONTH'))}">${s.months.map((m) => `<option value="${esc(m)}" ${m === s.month ? 'selected' : ''}>${esc(monthLabel(m))}</option>`).join('')}</select>
+        <select data-k="path" aria-label="${esc(this.t('PAGE'))}">${(s.pages.length ? s.pages : [{ path: '/', sessions: 0 }]).map((p) => `<option value="${esc(p.path)}" ${p.path === s.path ? 'selected' : ''}>${esc(p.path)} (${p.sessions})</option>`).join('')}</select>
+        <span class="seg" role="group" aria-label="${esc(this.t('DEVICE'))}">${['phone', 'tablet', 'computer'].map((d) => `<button type="button" data-device="${d}" aria-pressed="${d === s.device}">${esc(this.t(d.toUpperCase()))}</button>`).join('')}</span>`;
       this.$('.bar').querySelectorAll('select').forEach((el) => el.addEventListener('change', () => {
         if (el.dataset.k === 'month') this.loadPages(el.value);
         else { this.state.path = el.value; this.loadDetail(); }
@@ -80,7 +101,13 @@
 
     async loadDetail() {
       const s = this.state;
-      const d = await api(`/insights/page?month=${encodeURIComponent(s.month)}&path=${encodeURIComponent(s.path)}&device=${s.device}`);
+      let d;
+      try {
+        d = await api('/insights/page', { month: s.month, path: s.path, device: s.device });
+      } catch (e) {
+        this.showError();
+        return;
+      }
       this.detail = d;
       this.renderSide(d);
       this.renderMap(d);
@@ -88,25 +115,27 @@
 
     renderSide(d) {
       if (!d.sessions) {
-        this.$('.side').innerHTML = `<h3>How far people scroll</h3><p class="empty">No visits from a ${esc(d.device)} on this page yet this month.</p>`;
+        this.$('.side').innerHTML = `<h3>${esc(this.t('SCROLL_TITLE'))}</h3><p class="empty">${esc(this.t('NO_VISITS'))}</p>`;
         return;
       }
       const secs = d.sections.map((x) => `
         <div class="sec"><div class="top"><span>${esc(x.label)}</span><b>${x.percent}%</b></div><div class="track"><i style="width:${x.percent}%"></i></div></div>`).join('');
+      const visits = this.t(d.sessions === 1 ? 'VISITS_ONE' : 'VISITS_MANY', { n: d.sessions });
       this.$('.side').innerHTML = `
-        <h3>How far people scroll</h3>
-        <p class="note">${d.sessions} visit${d.sessions === 1 ? '' : 's'} on ${esc(d.device)}. ${d.depth[100] ?? 0}% reached the very bottom of the page.</p>
-        ${secs || '<p class="empty">No sections found on this page.</p>'}`;
+        <h3>${esc(this.t('SCROLL_TITLE'))}</h3>
+        <p class="note">${esc(visits)} ${esc(this.t('BOTTOM', { percent: d.depth[100] ?? 0 }))}</p>
+        ${secs || `<p class="empty">${esc(this.t('NO_SECTIONS'))}</p>`}`;
     }
 
     renderMap(d) {
       const box = this.$('.map');
       const thin = d.taps_total < ENOUGH_TAPS;
+      const collecting = this.t(d.taps_total === 1 ? 'COLLECTING_ONE' : 'COLLECTING_MANY', { n: d.taps_total, enough: ENOUGH_TAPS });
       box.innerHTML = `
-        <h3>Where people tap</h3>
-        ${thin ? `<p class="warn">Still collecting: ${d.taps_total} tap${d.taps_total === 1 ? '' : 's'} so far. The map gets reliable after about ${ENOUGH_TAPS}.</p>` : `<p class="note">${d.taps_total} taps this month.</p>`}
-        <div class="frame"><iframe title="Page preview" sandbox="allow-same-origin allow-scripts"></iframe></div>
-        <div class="legend"><span>Fewer</span><i></i><span>More</span></div>`;
+        <h3>${esc(this.t('TAP_TITLE'))}</h3>
+        ${thin ? `<p class="warn">${esc(collecting)}</p>` : `<p class="note">${esc(this.t('TAPS_MONTH', { n: d.taps_total }))}</p>`}
+        <div class="frame"><iframe title="${esc(this.t('PREVIEW'))}" sandbox="allow-same-origin allow-scripts"></iframe></div>
+        <div class="legend"><span>${esc(this.t('FEWER'))}</span><i></i><span>${esc(this.t('MORE'))}</span></div>`;
       const frame = box.querySelector('.frame');
       const iframe = box.querySelector('iframe');
       const width = WIDTHS[d.device] || 1280;

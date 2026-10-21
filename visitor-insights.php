@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Grav\Plugin;
 
 use Grav\Common\Plugin;
+use Grav\Common\Uri;
+use Grav\Events\PermissionsRegisterEvent;
+use Grav\Framework\Acl\PermissionsReader;
 use Grav\Plugin\VisitorInsights\ApiController;
+use Grav\Plugin\VisitorInsights\ClientIp;
 use Grav\Plugin\VisitorInsights\Store;
 use RocketTheme\Toolbox\Event\Event;
 
@@ -19,7 +23,15 @@ class VisitorInsightsPlugin extends Plugin
     {
         return [
             'onPluginsInitialized' => [['autoload', 100000], ['onPluginsInitialized', 0]],
+            PermissionsRegisterEvent::class => ['onRegisterPermissions', 1000],
         ];
+    }
+
+    /** Grav doesn't read a plugin's permissions.yaml by itself; this puts api.insights.read in Admin2's permission lists. */
+    public function onRegisterPermissions(PermissionsRegisterEvent $event): void
+    {
+        $actions = PermissionsReader::fromYaml("plugin://{$this->name}/permissions.yaml");
+        $event->permissions->addActions($actions);
     }
 
     public function autoload(): void
@@ -79,9 +91,8 @@ class VisitorInsightsPlugin extends Plugin
 
     private function record(array $hit): void
     {
-        $ip = (string) ($this->config->get('plugins.visitor-insights.trust_cloudflare_ip', false) && !empty($_SERVER['HTTP_CF_CONNECTING_IP'])
-            ? $_SERVER['HTTP_CF_CONNECTING_IP']
-            : ($_SERVER['REMOTE_ADDR'] ?? ''));
+        // Uri::ip() follows Grav's system.http_x_forwarded settings behind a proxy.
+        $ip = ClientIp::resolve((string) Uri::ip(), $_SERVER, (bool) $this->config->get('plugins.visitor-insights.trust_cloudflare_ip', false));
         $ua = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
 
         // Cloudflare Bot Management, when the site has it: drop likely bots.

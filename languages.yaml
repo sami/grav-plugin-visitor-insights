@@ -22,6 +22,24 @@ en:
       TODAY: Today
       OPEN_PAGE: Scroll depth and tap map
       ERROR: Couldn't load the numbers just now. Try Refresh in a minute.
+    PAGE:
+      ERROR: Couldn't load visitor insights just now. Try again in a minute.
+      MONTH: Month
+      PAGE: Page
+      DEVICE: Device
+      SCROLL_TITLE: How far people scroll
+      NO_VISITS: No visits from this device on this page yet this month.
+      VISITS_ONE: 1 visit on this device.
+      VISITS_MANY: '{n} visits on this device.'
+      BOTTOM: '{percent}% reached the very bottom of the page.'
+      NO_SECTIONS: No sections found on this page.
+      TAP_TITLE: Where people tap
+      COLLECTING_ONE: 'Still collecting: 1 tap so far. The map gets reliable after about {enough}.'
+      COLLECTING_MANY: 'Still collecting: {n} taps so far. The map gets reliable after about {enough}.'
+      TAPS_MONTH: '{n} taps this month.'
+      PREVIEW: Page preview
+      FEWER: Fewer
+      MORE: More
     SETTINGS:
       COUNTING: Counting
       COUNT_AFTER: Count a view after (seconds)
@@ -47,4 +65,4 @@ en:
       IGNORE: Opt-out parameter
       IGNORE_HELP: Open any page with ?insights-ignore=1 to stop counting that browser (0 to undo).
       CLOUDFLARE: Site is behind Cloudflare
-      CLOUDFLARE_HELP: Read the visitor IP from Cloudflare's CF-Connecting-IP header. Only turn this on when all traffic goes through Cloudflare.
+      CLOUDFLARE_HELP: "Read the visitor IP from Cloudflare's CF-Connecting-IP header, whatever Grav's own proxy settings say. The header can be faked unless your server only accepts traffic from Cloudflare. Grav's system.http_x_forwarded.cf_connecting_ip setting does the same job for the whole site."
