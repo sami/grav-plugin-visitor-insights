@@ -1,7 +1,7 @@
 actions:
   api.insights:
     type: access
-    label: Visitor Insights
+    label: PLUGIN_VISITOR_INSIGHTS.PERMISSION.SECTION
     actions:
       read:
-        label: View visitor insights
+        label: PLUGIN_VISITOR_INSIGHTS.PERMISSION.READ

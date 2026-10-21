@@ -1,6 +1,9 @@
 en:
   PLUGIN_VISITOR_INSIGHTS:
     SIDEBAR: Visitor insights
+    PERMISSION:
+      SECTION: Visitor Insights
+      READ: View visitor insights
     PANEL:
       WIDGET_LABEL: Visitor insights
       TITLE: Your website this month

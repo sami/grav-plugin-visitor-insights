@@ -446,7 +446,7 @@ final class Store
 
     /**
      * One visitor's counts for today: 'v' views and 'a' actions. A plain
-     * number is the 1.0.0 format, which only counted views.
+     * number is the format before the 1.0.0 tag (33aaaf5), which only counted views.
      *
      * @return array{v:int,a:int}
      */

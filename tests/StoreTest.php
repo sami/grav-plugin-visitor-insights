@@ -262,7 +262,7 @@ final class StoreTest extends TestCase
         $s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com');
         $file = $this->dir . '/visitors-2026-10-18.json';
         $hash = $this->visitorHashes()[0];
-        // 1.0.0 wrote a plain view count per visitor
+        // the code before the 1.0.0 tag wrote a plain view count per visitor
         file_put_contents($file, json_encode([$hash => 2]));
 
         $this->assertTrue($s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com'), 'third view is within the cap');
@@ -417,7 +417,7 @@ final class StoreTest extends TestCase
         $file = $this->dir . '/visitors-2026-10-18.json';
         $seen = json_decode((string) file_get_contents($file), true);
         $hash = $this->visitorHashes()[0];
-        $seen[$hash] = 2;   // 1.0.0's plain view count, next to the new per-IP entry
+        $seen[$hash] = 2;   // the pre-1.0.0 plain view count, next to the new per-IP entry
         file_put_contents($file, json_encode($seen));
 
         $this->assertTrue($s->recordView('/', '', '', 390, '10.0.0.1', self::UA, 'example.com'));
