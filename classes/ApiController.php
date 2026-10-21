@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Grav\Plugin\VisitorInsights;
 
 use Grav\Plugin\Api\Controllers\AbstractApiController;
+use Grav\Plugin\Api\Controllers\TranslatesAdminLabels;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -15,6 +16,9 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class ApiController extends AbstractApiController
 {
+    // Labels follow the admin user's own language, as Admin2's sidebar does.
+    use TranslatesAdminLabels;
+
     public const PERMISSION = 'api.insights.read';
 
     private function store(): Store
@@ -31,6 +35,7 @@ final class ApiController extends AbstractApiController
     public function summary(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, self::PERMISSION);
+        $this->primeAdminLanguages($request);
         return ApiResponse::create($this->store()->summary() + ['labels' => $this->labels()]);
     }
 
@@ -41,6 +46,7 @@ final class ApiController extends AbstractApiController
         $store = $this->store();
         $months = $store->months();
         $month = (string) ($request->getQueryParams()['month'] ?? ($months[0] ?? gmdate('Y-m')));
+        $this->primeAdminLanguages($request);
         return ApiResponse::create(['months' => $months, 'month' => $month, 'pages' => $store->pages($month), 'labels' => $this->pageLabels()]);
     }
 
@@ -83,12 +89,12 @@ final class ApiController extends AbstractApiController
             + $this->translate('PANEL', ['PHONE', 'TABLET', 'COMPUTER']);
     }
 
+    /** Call primeAdminLanguages() first, so translateLabel() knows the admin user's language. */
     private function translate(string $group, array $keys): array
     {
-        $language = $this->grav['language'];
         $out = [];
         foreach ($keys as $k) {
-            $out[$k] = $language->translate('PLUGIN_VISITOR_INSIGHTS.' . $group . '.' . $k);
+            $out[$k] = $this->translateLabel('PLUGIN_VISITOR_INSIGHTS.' . $group . '.' . $k);
         }
         return $out;
     }
