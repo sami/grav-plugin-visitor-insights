@@ -1,3 +1,20 @@
+# v1.0.1
+## 10/21/2026
+
+1. [](#improved)
+    * The admin page's wording is translated through `languages.yaml`, like the dashboard panel's, and both follow the admin user's own language
+    * README: how hits are written on busy sites, with measured timings, and how `data-insights-section` gives finer tap maps on themes that use one big section
+    * README: how to use Grav's proxy settings for the visitor IP
+    * Admin2 is now listed as a dependency, so updating installs it if it isn't already installed
+2. [](#bugfix)
+    * The Visitor insights permission (`api.insights.read`) now shows in Admin2, so it can be given to users and groups. Thanks @rhukster [#4364](https://github.com/getgrav/grav/issues/4364)
+    * One IP address (one /64 network for IPv6) can add at most 20 new visitors a day, so changing the browser's user agent no longer creates new visitors. The IP is only kept as a salted hash in that day's file. Thanks @rhukster [#4364](https://github.com/getgrav/grav/issues/4364)
+    * A day's visitor list holds at most 10,000 entries, so a flood can't make every hit rewrite a huge file
+    * A day lists at most 50 tap names, with the rest counted as Other, and a page keeps at most 60 sections per device
+    * The visitor IP follows Grav's forwarded-header settings (`system.http_x_forwarded`) behind a proxy. The Cloudflare setting still overrides it, and its help now says the header can be faked unless the server only accepts traffic from Cloudflare
+    * The admin page shows an error, not blank panes, when a page's details can't be loaded
+    * The admin page and dashboard panel keep working when left open past the hour the admin's token lasts (Admin2 2.1.35 or later)
+
 # v1.0.0
 ## 10/18/2026
 

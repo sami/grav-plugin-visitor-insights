@@ -22,7 +22,7 @@ The plugin does still process IP addresses briefly, in memory, to tell one visit
 
 ## How visitors are counted without cookies
 
-Each visit is identified by a one-way hash of the IP address, the browser's user agent and a random salt. The salt is replaced every day and the old one is deleted, so the same person can't be linked from one day to the next and the hashes can't be reversed. Plausible and Fathom use the same method. A day's list of hashes is deleted when the day ends. Only the totals are kept, in one small JSON file per month.
+Each visit is identified by a one-way hash of the IP address, the browser's user agent and a random salt. The salt is replaced every day and the old one is deleted, so the same person can't be linked from one day to the next and the hashes can't be reversed. Plausible and Fathom use the same method. The day's list also counts how many visitors each IP address has added, keyed by a salted hash of the address, never the address itself. The list is deleted when the day ends. Only the totals are kept, in one JSON file per month.
 
 ## Telling people from bots
 
@@ -32,10 +32,13 @@ A view is only counted once the visitor engages with the page: it has been visib
 - browsers driven by automation (`navigator.webdriver`) are ignored;
 - behind Cloudflare, requests with a low bot score are dropped;
 - one visitor can add at most 50 views a day (you can change this);
+- one IP address can add at most 20 new visitors a day (for IPv6, one /64 network), so a script that changes its user agent on every request can't invent visitors. Anyone already counted carries on as normal. On a very busy day this can undercount people who share one connection, such as an office or a school;
+- a day's visitor list holds at most 10,000 entries. Past that, no new visitors are counted until the next day;
 - taps and scroll data are only accepted from visitors who were already counted;
 - one visitor can add at most 100 taps and scroll reports a day (you can change this), so a single browser can't flood the tap counts or the tap map;
 - views and scroll data are only counted for pages that really exist on the site: the browser reports its own path, so made-up paths are dropped;
-- a day lists at most 50 sources and 500 pages, and anything beyond that is counted as "Other", so a flood of invented referrers or paths can't fill the data folder.
+- a day lists at most 50 sources, 500 pages and 50 tap names, and anything beyond that is counted as "Other", so a flood of invented referrers, paths or names can't fill the data folder;
+- a page keeps scroll and tap data for at most 60 sections on each device.
 
 ## Respecting visitors
 
@@ -45,12 +48,20 @@ A view is only counted once the visitor engages with the page: it has been visib
 
 ## Speed
 
-The browser script is under 2 KB gzipped, loads with `defer` and sends one small request after engagement and one when the visitor leaves. On the server, recording a hit takes a fraction of a millisecond and doesn't load the page. Page rendering isn't affected.
+The browser script is under 2 KB gzipped, loads with `defer` and sends one small request after engagement and one when the visitor leaves. Page rendering isn't affected.
+
+On the server, every hit reads the month's file, changes it and writes it back in full, under a lock, so hits are recorded one at a time. The file grows with the number of pages that have scroll and tap data. Measured on a laptop SSD:
+
+- a 50-page site at the end of a busy month (a month file of about 0.5 MB): about 15 ms a hit, and about 80 hits a second when many arrive at once;
+- 500 pages with scroll and tap data, the most a month holds (about 5 MB): about 140 ms a hit, and about 7 hits a second.
+
+That suits small and medium sites. If yours regularly gets several hits a second, or has hundreds of pages that people scroll and tap, requests will queue behind the lock and a database-backed analytics tool is a better fit. The plugin also stops counting new visitors for the rest of the day once 10,000 different visitors have been seen.
 
 ## Requirements
 
 - Grav 2.0 or later
-- The [API plugin](https://github.com/getgrav/grav-plugin-api) 1.0.40 or later, with Admin2
+- The [API plugin](https://github.com/getgrav/grav-plugin-api) 1.0.40 or later
+- [Admin2](https://github.com/getgrav/grav-plugin-admin2) 2.0.0 or later. Installing or updating Visitor Insights with GPM installs it if it isn't there already
 - PHP 8.3 or later
 
 ## Installation
@@ -89,6 +100,12 @@ ignore_param: insights-ignore
 trust_cloudflare_ip: false          # only when the site is behind Cloudflare
 ```
 
+### Behind a proxy or load balancer
+
+The plugin takes the visitor's IP address from Grav, so it follows Grav's own proxy settings in `user/config/system.yaml`. Behind a proxy that sets `X-Forwarded-For`, turn on `http_x_forwarded.ip`; behind Cloudflare, `http_x_forwarded.cf_connecting_ip`. Only turn one on when every request really comes through that proxy, because otherwise visitors can fake the header. Without it, everyone appears to come from the proxy's address, and the limit of 20 new visitors per address applies to the whole site.
+
+`trust_cloudflare_ip` reads Cloudflare's header for this plugin only, whatever Grav's settings say. The same warning applies: the header can be faked unless your server only accepts traffic from Cloudflare.
+
 ## Marking up your pages
 
 None of this is required. The defaults work with most themes.
@@ -97,12 +114,26 @@ None of this is required. The defaults work with most themes.
 - `data-insights-section="key"` turns any element into a section for scroll depth and the tap map, with a stable key.
 - `data-insights-label="Our menu"` gives a section a readable name. Otherwise its first heading is used.
 
+### Finer tap maps
+
+Taps are placed on a 20 by 20 grid inside the section they land in, so a map is only as fine as the page's sections. Some themes wrap the whole page body in one `<section>`; Quark2, Grav's default theme, does. The tap map then has one section the length of the page, and on a 2,400px page each grid row covers about 120px.
+
+To get finer maps, mark the blocks of your pages yourself, in the theme's templates or in page content:
+
+```html
+<div data-insights-section="intro" data-insights-label="Introduction">…</div>
+<div data-insights-section="prices" data-insights-label="Prices">…</div>
+<div data-insights-section="contact" data-insights-label="Contact us">…</div>
+```
+
+A block inside another section is skipped, so the outer `<section>` would still win. Take `section` out of the **Page sections** setting, for example `header, [data-insights-section], footer`.
+
 ## Data
 
 Everything is stored in `user/data/visitor-insights/`:
 
 - `insights-YYYY-MM.json` holds a month's totals;
-- `visitors-YYYY-MM-DD.json` and `salt-YYYY-MM-DD.txt` exist for the current day only.
+- `visitors-YYYY-MM-DD.json` (salted hashes of today's visitors, and how many each IP address has added, keyed by a salted hash of the address) and `salt-YYYY-MM-DD.txt` exist for the current day only.
 
 Delete the folder to start again.
 
